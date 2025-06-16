@@ -1,5 +1,21 @@
 # Strategy Board
 
+**✅ 누구나 아래 명령만으로 바로 실행! (자동화/표준화 보장)**
+
+```bash
+# 1. 저장소 클론
+ git clone https://github.com/bombomi/strategy-board.git
+ cd strategy-board
+
+# 2. 도커 빌드 및 실행
+ docker build -t strategy-board .
+ docker run -d --name strategy-board-container -p 3000:3000 -p 8080:8080 strategy-board
+```
+
+- 모든 빌드/실행/포트/정적파일/프록시/DB 초기화가 자동화되어 있습니다.
+- `start.sh`, `run.sh`, `nginx.conf`, `Dockerfile` 등 표준화된 설정으로 누구나 동일하게 실행됩니다.
+- 자세한 설명은 아래를 참고하세요.
+
 전략 게시판 프로젝트입니다. Spring Boot 백엔드와 TypeScript + React 프론트엔드로 구성된 풀스택 애플리케이션입니다.
 
 ## 🚀 빠른 실행 (Docker)
