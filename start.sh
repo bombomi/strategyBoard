@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Strategy Board 컨테이너 내부 실행 스크립트 (LF, UTF-8, 실행권한 보장)
+
+set -e
+
 echo "🚀 Strategy Board 애플리케이션을 시작합니다..."
 
 # Start Spring Boot application in background
