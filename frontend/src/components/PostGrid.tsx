@@ -31,13 +31,14 @@ const PostGrid = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const MAX_POSTS = 1000; // 최대 유지할 게시글 수
 
-  const fetchPosts = async (pageNum: number, isNewStrategy: boolean = false) => {
+  const fetchPosts = async (pageNum: number, isNewStrategy: boolean = false, size: number = 10) => {
     try {
       setLoading(true);
       setError(null);
       
-      let url = `/api/board?page=${pageNum}&size=10&strategy=${strategy}`;
+      let url = `/api/board?page=${pageNum}&size=${size}&strategy=${strategy}`;
       
       // 무한스크롤의 경우 cursorId 추가
       if (strategy === 'infinite' && posts.length > 0 && !isNewStrategy) {
@@ -58,7 +59,7 @@ const PostGrid = () => {
       if (strategy === 'paging') {
         const estimatedTotal = 50000; // 실제로는 백엔드에서 총 개수를 받아와야 함
         setTotalElements(estimatedTotal);
-        setTotalPages(Math.ceil(estimatedTotal / 10));
+        setTotalPages(Math.ceil(estimatedTotal / size));
       }
       
       return response.data;
@@ -71,20 +72,75 @@ const PostGrid = () => {
     }
   };
 
+  // 메모리 관리를 위한 데이터 정리 함수
+  const cleanupPosts = useCallback((newPosts: Post[]) => {
+    if (strategy !== 'infinite') return newPosts;
+    
+    const container = scrollContainerRef.current;
+    if (!container) return newPosts;
+
+    const { scrollTop } = container;
+    const isScrollingUp = scrollTop < 100; // 상단에 가까울 때
+
+    if (isScrollingUp) {
+      // 스크롤이 위에 있을 때는 데이터 유지
+      return newPosts;
+    } else {
+      // 스크롤이 아래에 있을 때는 최대 개수 제한
+      return newPosts.slice(-MAX_POSTS);
+    }
+  }, [strategy]);
+
   const loadData = async (pageNum: number, isNewStrategy: boolean = false) => {
     const newPosts = await fetchPosts(pageNum, isNewStrategy);
     
     if (strategy === 'paging' || isNewStrategy) {
       setPosts(newPosts);
     } else {
-      setPosts(prev => [...prev, ...newPosts]);
+      setPosts((prev: Post[]) => {
+        const combined = [...prev, ...newPosts];
+        return cleanupPosts(combined);
+      });
     }
   };
 
+  // 무한스크롤: 스크롤이 없으면 자동으로 추가 데이터 패칭
+  const ensureScrollable = useCallback(async () => {
+    if (strategy !== 'infinite') return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // 스크롤이 생기지 않을 때만 추가 패칭
+    while (container.scrollHeight <= container.clientHeight && hasMore) {
+      // 1회 패칭마다 100개씩 요청
+      const newPosts = await fetchPosts(page, false, 100);
+      if (newPosts.length === 0) break;
+      
+      setPosts(prev => {
+        const combined = [...prev, ...newPosts];
+        return cleanupPosts(combined);
+      });
+    }
+  }, [strategy, hasMore, page, cleanupPosts]);
+
+  // 전략 변경 시 초기 데이터 패칭 (무한스크롤은 100개, 페이징은 10개)
   useEffect(() => {
-    loadData(0, true);
-    setPage(0);
-    setHasMore(true);
+    const init = async () => {
+      setPage(0);
+      setHasMore(true);
+      if (strategy === 'infinite') {
+        setPosts([]);
+        // 100개 패칭 후 스크롤이 없으면 추가 패칭
+        const firstPosts = await fetchPosts(0, true, 100);
+        setPosts(firstPosts);
+        setTimeout(ensureScrollable, 0);
+      } else {
+        const firstPosts = await fetchPosts(0, true, 10);
+        setPosts(firstPosts);
+      }
+    };
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategy]);
 
   const handleStrategyChange = (_: React.MouseEvent<HTMLElement>, newStrategy: LoadingStrategy) => {
@@ -144,7 +200,10 @@ const PostGrid = () => {
       setPage(nextPage);
       loadData(nextPage);
     }
-  }, [strategy, loading, hasMore, page]);
+
+    // 스크롤 위치에 따라 데이터 정리
+    setPosts(prev => cleanupPosts(prev));
+  }, [strategy, loading, hasMore, page, cleanupPosts]);
 
   // 스크롤 이벤트 리스너 등록
   useEffect(() => {
@@ -301,7 +360,7 @@ const PostGrid = () => {
         {strategy === 'infinite' && (
           <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
             <Typography variant="caption">
-              디버깅 정보: 페이지 {page + 1}, 로딩 중: {loading ? 'Yes' : 'No'}, 더 있음: {hasMore ? 'Yes' : 'No'}
+              디버깅 정보: 페이지 {page + 1}, 로딩 중: {loading ? 'Yes' : 'No'}, 더 있음: {hasMore ? 'Yes' : 'No'}, 현재 데이터: {posts.length}개
             </Typography>
           </Box>
         )}
