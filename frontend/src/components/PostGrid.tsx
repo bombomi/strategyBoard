@@ -320,7 +320,7 @@ const PostGrid = () => {
               showFirstButton
               showLastButton
               siblingCount={2} // 현재 페이지 양쪽에 보여줄 페이지 수
-              boundaryCount={2} // 처음과 끝에 보여줄 페이지 수
+              boundaryCount={2} // 처음과 끝에 보여줄 페이지 수 
             />
             
             {/* 추가 정보 */}
