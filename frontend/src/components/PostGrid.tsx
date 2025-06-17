@@ -173,7 +173,7 @@ const PostGrid = () => {
   // 무한스크롤을 위한 스크롤 이벤트 핸들러
   const handleScroll = useCallback(() => {
     if (strategy !== 'infinite' || loading || !hasMore) {
-      console.log('스크롤 이벤트 무시:', { strategy, loading, hasMore });
+      // 이미 로딩 중이거나, 더 이상 데이터가 없으면 추가 요청 X
       return;
     }
 
@@ -193,8 +193,8 @@ const PostGrid = () => {
       scrollPercentage: Math.round(scrollPercentage * 100) + '%'
     });
     
-    // 스크롤이 80% 지점에 도달했을 때 다음 데이터 로드
-    if (scrollPercentage >= 0.8) {
+    // 스크롤이 70% 지점에 도달했을 때 다음 데이터 로드
+    if (scrollPercentage >= 0.7) {
       console.log('무한스크롤 트리거! 다음 페이지 로드');
       const nextPage = page + 1;
       setPage(nextPage);
@@ -300,12 +300,16 @@ const PostGrid = () => {
         </TableContainer>
         
         {loading && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2, p: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
             <CircularProgress />
-            <Typography sx={{ ml: 2, alignSelf: 'center' }}>
-              데이터를 불러오는 중...
-            </Typography>
+            <Typography sx={{ ml: 2 }}>데이터를 불러오는 중...</Typography>
           </Box>
+        )}
+        
+        {!hasMore && !loading && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            더 이상 불러올 데이터가 없습니다.
+          </Alert>
         )}
         
         {strategy === 'paging' && !loading && (
