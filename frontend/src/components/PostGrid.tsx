@@ -32,36 +32,42 @@ const PostGrid = () => {
   const [totalElements, setTotalElements] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const MAX_POSTS = 1000; // 최대 유지할 게시글 수
+  const [cursorId, setCursorId] = useState<number | null>(null);
 
   const fetchPosts = async (pageNum: number, isNewStrategy: boolean = false, size: number = 10) => {
     try {
       setLoading(true);
       setError(null);
-      
-      let url = `/api/board?page=${pageNum}&size=${size}&strategy=${strategy}`;
-      
-      // 무한스크롤의 경우 cursorId 추가
-      if (strategy === 'infinite' && posts.length > 0 && !isNewStrategy) {
-        const lastPost = posts[posts.length - 1];
-        url += `&cursorId=${lastPost.id}`;
+      let url = `/api/board?size=${size}&strategy=${strategy}`;
+      if (strategy === 'paging') {
+        url += `&page=${pageNum}`;
       }
-      
+      // 무한스크롤 커서 기반
+      if (strategy === 'infinite') {
+        // 초기 진입 또는 전략 변경 시에는 cursorId 없이 요청
+        if (!isNewStrategy && posts.length > 0) {
+          const lastPost = posts[posts.length - 1];
+          url += `&cursorId=${lastPost.id}`;
+        }
+      }
       console.log('Fetching:', url);
       const response = await axios.get<Post[]>(url);
       console.log('Response:', response.data);
-      
       if (response.data.length === 0) {
         setHasMore(false);
         return [];
       }
-      
-      // 페이징 전략의 경우 총 페이지 수 계산 (임시로 5000개 게시글 기준)
+      // 페이징 전략의 경우 총 페이지 수 계산 (임시로 50000개 게시글 기준)
       if (strategy === 'paging') {
-        const estimatedTotal = 50000; // 실제로는 백엔드에서 총 개수를 받아와야 함
+        const estimatedTotal = 50000;
         setTotalElements(estimatedTotal);
         setTotalPages(Math.ceil(estimatedTotal / size));
       }
-      
+      // 무한스크롤: 마지막 게시글 id를 커서로 저장
+      if (strategy === 'infinite') {
+        const last = response.data[response.data.length - 1];
+        setCursorId(last?.id ?? null);
+      }
       return response.data;
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -93,14 +99,19 @@ const PostGrid = () => {
 
   const loadData = async (pageNum: number, isNewStrategy: boolean = false) => {
     const newPosts = await fetchPosts(pageNum, isNewStrategy);
-    
     if (strategy === 'paging' || isNewStrategy) {
       setPosts(newPosts);
+      if (strategy === 'infinite' && newPosts.length > 0) {
+        setCursorId(newPosts[newPosts.length - 1].id);
+      }
     } else {
       setPosts((prev: Post[]) => {
         const combined = [...prev, ...newPosts];
         return cleanupPosts(combined);
       });
+      if (newPosts.length > 0) {
+        setCursorId(newPosts[newPosts.length - 1].id);
+      }
     }
   };
 
@@ -109,28 +120,39 @@ const PostGrid = () => {
     if (strategy !== 'infinite') return;
     const container = scrollContainerRef.current;
     if (!container) return;
-
-    // 스크롤이 생기지 않을 때만 추가 패칭
-    while (container.scrollHeight <= container.clientHeight && hasMore) {
-      // 1회 패칭마다 100개씩 요청
-      const newPosts = await fetchPosts(page, false, 100);
-      if (newPosts.length === 0) break;
-      
-      setPosts(prev => {
-        const combined = [...prev, ...newPosts];
+    let localHasMore = hasMore;
+    let localCursorId = null;
+    let localPosts = [...posts];
+    while (container.scrollHeight <= container.clientHeight && localHasMore) {
+      // 커서 기반으로 추가 데이터 요청
+      let url = `/api/board?size=100&strategy=infinite`;
+      if (localPosts.length > 0) {
+        const lastPost = localPosts[localPosts.length - 1];
+        url += `&cursorId=${lastPost.id}`;
+      }
+      const response = await axios.get<Post[]>(url);
+      if (response.data.length === 0) {
+        localHasMore = false;
+        break;
+      }
+      localPosts = [...localPosts, ...response.data];
+      setPosts((prev: Post[]) => {
+        const combined = [...prev, ...response.data];
         return cleanupPosts(combined);
       });
+      localCursorId = response.data[response.data.length - 1]?.id ?? null;
+      setCursorId(localCursorId);
     }
-  }, [strategy, hasMore, page, cleanupPosts]);
+  }, [strategy, hasMore, posts, cleanupPosts]);
 
-  // 전략 변경 시 초기 데이터 패칭 (무한스크롤은 100개, 페이징은 10개)
+  // 전략 변경 시 초기화
   useEffect(() => {
     const init = async () => {
       setPage(0);
       setHasMore(true);
+      setCursorId(null);
       if (strategy === 'infinite') {
         setPosts([]);
-        // 100개 패칭 후 스크롤이 없으면 추가 패칭
         const firstPosts = await fetchPosts(0, true, 100);
         setPosts(firstPosts);
         setTimeout(ensureScrollable, 0);
@@ -173,37 +195,20 @@ const PostGrid = () => {
   // 무한스크롤을 위한 스크롤 이벤트 핸들러
   const handleScroll = useCallback(() => {
     if (strategy !== 'infinite' || loading || !hasMore) {
-      // 이미 로딩 중이거나, 더 이상 데이터가 없으면 추가 요청 X
       return;
     }
-
     const container = scrollContainerRef.current;
     if (!container) {
-      console.log('스크롤 컨테이너를 찾을 수 없음');
       return;
     }
-
     const { scrollTop, scrollHeight, clientHeight } = container;
     const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
-    
-    console.log('스크롤 정보:', {
-      scrollTop,
-      scrollHeight,
-      clientHeight,
-      scrollPercentage: Math.round(scrollPercentage * 100) + '%'
-    });
-    
-    // 스크롤이 70% 지점에 도달했을 때 다음 데이터 로드
     if (scrollPercentage >= 0.7) {
-      console.log('무한스크롤 트리거! 다음 페이지 로드');
-      const nextPage = page + 1;
-      setPage(nextPage);
-      loadData(nextPage);
+      // 커서 기반으로 다음 데이터 요청
+      loadData(0);
     }
-
-    // 스크롤 위치에 따라 데이터 정리
-    setPosts(prev => cleanupPosts(prev));
-  }, [strategy, loading, hasMore, page, cleanupPosts]);
+    setPosts((prev: Post[]) => cleanupPosts(prev));
+  }, [strategy, loading, hasMore, cleanupPosts, loadData]);
 
   // 스크롤 이벤트 리스너 등록
   useEffect(() => {
